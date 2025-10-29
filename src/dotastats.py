@@ -1,7 +1,7 @@
 from base_plugin import BasePlugin, HookResult, HookStrategy
 from typing import Any
 from markdown_utils import parse_markdown
-from client_utils import send_message
+from client_utils import send_message, get_last_fragment
 import requests
 from ui.settings import Switch, Divider
 from ui.alert import AlertDialogBuilder
@@ -12,9 +12,9 @@ __id__ = "dotastats"
 __name__ = "DotaStats"
 __description__ = "Информация о твоих последних матчах или о конкретном матче. Гайд в настройках\nProvides information about your last dota matches or about specific match. Guide in settings"
 __author__ = "@a352642 | @kingley_the_lord"
-__version__ = "1.0"
+__version__ = "7.39/1.1"
 __icon__ = "dota_2/0"
-__min_version__ = "11.12.0"
+__min_version__ = "12.1.1"
 
 BASE_URL = "https://api.opendota.com/api/"
 HEROES = {1: 'Anti-Mage', 2: 'Axe', 3: 'Bane', 4: 'Bloodseeker', 5: 'Crystal Maiden', 6: 'Drow Ranger', 7: 'Earthshaker', 8: 'Juggernaut', 9: 'Mirana', 10: 'Morphling', 11: 'Shadow Fiend', 12: 'Phantom Lancer', 13: 'Puck', 14: 'Pudge', 15: 'Razor', 16: 'Sand King', 17: 'Storm Spirit', 18: 'Sven', 19: 'Tiny', 20: 'Vengeful Spirit', 21: 'Windranger', 22: 'Zeus', 23: 'Kunkka', 25: 'Lina', 26: 'Lion', 27: 'Shadow Shaman', 28: 'Slardar', 29: 'Tidehunter', 30: 'Witch Doctor', 31: 'Lich', 32: 'Riki', 33: 'Enigma', 34: 'Tinker', 35: 'Sniper', 36: 'Necrophos', 37: 'Warlock', 38: 'Beastmaster', 39: 'Queen of Pain', 40: 'Venomancer', 41: 'Faceless Void', 42: 'Wraith King', 43: 'Death Prophet', 44: 'Phantom Assassin', 45: 'Pugna', 46: 'Templar Assassin', 47: 'Viper', 48: 'Luna', 49: 'Dragon Knight', 50: 'Dazzle', 51: 'Clockwerk', 52: 'Leshrac', 53: "Nature's Prophet", 54: 'Lifestealer', 55: 'Dark Seer', 56: 'Clinkz', 57: 'Omniknight', 58: 'Enchantress', 59: 'Huskar', 60: 'Night Stalker', 61: 'Broodmother', 62: 'Bounty Hunter', 63: 'Weaver', 64: 'Jakiro', 65: 'Batrider', 66: 'Chen', 67: 'Spectre', 68: 'Ancient Apparition', 69: 'Doom', 70: 'Ursa', 71: 'Spirit Breaker', 72: 'Gyrocopter', 73: 'Alchemist', 74: 'Invoker', 75: 'Silencer', 76: 'Outworld Destroyer', 77: 'Lycan', 78: 'Brewmaster', 79: 'Shadow Demon', 80: 'Lone Druid', 81: 'Chaos Knight', 82: 'Meepo', 83: 'Treant Protector', 84: 'Ogre Magi', 85: 'Undying', 86: 'Rubick', 87: 'Disruptor', 88: 'Nyx Assassin', 89: 'Naga Siren', 90: 'Keeper of the Light', 91: 'Io', 92: 'Visage', 93: 'Slark', 94: 'Medusa', 95: 'Troll Warlord', 96: 'Centaur Warrunner', 97: 'Magnus', 98: 'Timbersaw', 99: 'Bristleback', 100: 'Tusk', 101: 'Skywrath Mage', 102: 'Abaddon', 103: 'Elder Titan', 104: 'Legion Commander', 105: 'Techies', 106: 'Ember Spirit', 107: 'Earth Spirit', 108: 'Underlord', 109: 'Terrorblade', 110: 'Phoenix', 111: 'Oracle', 112: 'Winter Wyvern', 113: 'Arc Warden', 114: 'Monkey King', 119: 'Dark Willow', 120: 'Pangolier', 121: 'Grimstroke', 123: 'Hoodwink', 126: 'Void Spirit', 128: 'Snapfire', 129: 'Mars', 131: 'Ringmaster', 135: 'Dawnbreaker', 136: 'Marci', 137: 'Primal Beast', 138: 'Muerta', 145: 'Kez'}
@@ -72,23 +72,78 @@ dire_networth_x = 992
 radiant_nicknames_x = 390
 dire_nicknames_x = 1094
 
+localize = {
+    "always_send_images": {
+        "ru": "Всегда отправлять сообщения",
+        "en": "Always send images"
+    },
+    "usage": {
+        "ru": "Использование: .dotamatch <id_матча>\nили .dotaprofile <9_цифр_профиля>",
+        "en": "Usage: .dotamatch <match_id>\nor .dotaprofile <9digit_profile_id>"
+    },
+    "match_not_found": {
+        "ru": "Матч №{} не найден",
+        "en": "Match №{} not found"
+    },
+    "radiant_victory": {
+        "ru": "Победа сил Света",
+        "en": "Radiant victory"
+    },
+    "dire_victory": {
+        "ru": "Победа сил Тьмы",
+        "en": "Dire victory"
+    },
+    "radiant": {
+        "ru": "Силы Света",
+        "en": "Radiant"
+    },
+    "dire": {
+        "ru": "Силы Тьмы",
+        "en": "Dire"
+    },
+    "invalid_id_profile": {
+        "ru": "Неверный ID, либо пользователь скрыл свои матчи",
+        "en": "Invalid ID or player hide matches history"
+    },
+    "match_history": {
+        "ru": "История матчей игрока №{}\n",
+        "en": "Match history of player №{}\n"
+    },
+    "match": {
+        "ru": "Матч №{}",
+        "en": "Match №{}"
+    },
+    "old_version": {
+        "ru": "Плагин не обновлен под новый патч. Если вышли новые герои или предметы, они не будут отображены",
+        "en": "Plugin is not updated for the latest patch. If new heroes or items was released, they are will not be show"
+    }
+}
+
 class DotaStats(BasePlugin):
     def on_plugin_load(self):
+        self.data = self.load_data()
         self.add_on_send_message_hook()
         self.check_version()
+    
       
     def create_settings(self):
         settings = [
             Divider(),
             Switch(key="lang_en", text="Activate for English language", default=False, icon="msg_photo_settings"),
             Divider(),
-            Switch(key="alwaysimage", text="Always send images" if self.get_setting("lang", False) else "Всегда отправлять изображения", default=False, ),
-            Divider(text="Использование: .dotamatch <id_матча>\nили .dotaprofile <9_цифр_профиля>\nUsage: .dotamatch <match_id>\nor .dotaprofile <9digit_profile_id>")
+            Switch(key="alwaysimage", text=localize['always_send_images']["en" if self.get_setting("lang_en", False) else "ru"], default=False, ),
+            Divider(text=localize['usage']["en" if self.get_setting("lang_en", False) else "ru"])
         ]
         return settings
+    
+    def load_data(self):
+        return requests.get("https://raw.githubusercontent.com/kingley82/dotastats_plugin/refs/heads/master/data.json").json()
 
     def check_version(self):
-        pass
+        if self.data["version"] != __version__:
+            bld = AlertDialogBuilder(get_last_fragment().getParentActivity())
+            bld.set_title("No updates")
+            bld.set_message(localize['old_version']["en" if self.get_setting("lang_en", False) else "ru"])
  
     def on_send_message_hook(self, account: int, params: Any) -> HookResult:
         if not isinstance(params.message, str):
@@ -104,31 +159,38 @@ class DotaStats(BasePlugin):
             r = requests.get(BASE_URL+"matches/"+id).json()
             if "error" in r:
                 if r["error"] == "Not Found":
-                    if lang == "ru":
-                        params.message = f"Матч №{id} не найден"
-                    else:
-                        params.message = f"Match №{id} not found"
-                return HookResult(strategy=HookStrategy.MODIFY, params=params)
+                    # if lang == "ru":
+                    #     params.message = f"Матч №{id} не найден"
+                    # else:
+                    #     params.message = f"Match №{id} not found"
+                    bld = AlertDialogBuilder(get_last_fragment().getParentActivity())
+                    bld.set_title("Not Found")
+                    bld.set_message(localize['match_not_found'][lang].format(id))
+                    bld.show()
+                return HookResult(strategy=HookStrategy.CANCEL)
             text = ""
             parsed = None
             if 'text' in options:
-                if lang == "ru":
-                    text = "Матч №" + id
-                else:
-                    text = "Match №" + id
+                # if lang == "ru":
+                #     text = "Матч №" + id
+                # else:
+                #     text = "Match №" + id
+                text = localize["match"][lang].format(id)
                 text += " " + GAME_MODES[r["game_mode"]]['name'] + "\n"
                 text += f"{seconds_to_normal_time(r['duration'])} - "
-                if lang == 'ru':
-                    text += f"Победа {'сил Света' if r['radiant_win'] else 'сил Тьмы'}\n\n-- Силы Света -- {'🏆' if r['radiant_win'] else ''}\n"
-                else:
-                    text += f"{'Radiant win' if r['radiant_win'] else 'Dire win'}\n\n-- Radiant -- {'🏆' if r['radiant_win'] else ''}\n"
+                # if lang == 'ru':
+                #     text += f"Победа {'сил Света' if r['radiant_win'] else 'сил Тьмы'}\n\n-- Силы Света -- {'🏆' if r['radiant_win'] else ''}\n"
+                # else:
+                #     text += f"{'Radiant win' if r['radiant_win'] else 'Dire win'}\n\n-- Radiant -- {'🏆' if r['radiant_win'] else ''}\n"
+                text += f"{localize['radiant_victory'][lang] if r['radiant_win'] else localize['dire_victory'][lang]}\n\n-- {localize['radiant'][lang]} {'🏆' if r['radiant_win'] else ''}--\n"
                 players = r['players']
                 for i in range(5):
                     text += "-- " + HEROES[players[i]['hero_id']] + f" [{players[i]['level']}lvl] [{players[i]['net_worth']}💰] [{players[i]['kills']}/{players[i]['deaths']}/{players[i]['assists']}]\n"
-                if lang == 'ru':
-                    text += f"\n-- Силы Тьмы -- {'🏆' if not r['radiant_win'] else ''}\n"
-                else:
-                    text += f"\n-- Dire -- {'🏆' if not r['radiant_win'] else ''}\n"
+                # if lang == 'ru':
+                #     text += f"\n-- Силы Тьмы -- {'🏆' if not r['radiant_win'] else ''}\n"
+                # else:
+                #     text += f"\n-- Dire -- {'🏆' if not r['radiant_win'] else ''}\n"
+                text += f"\n -- {localize['dire'][lang]} {'🏆' if not r['radiant_win'] else ''} --\n"
                 for i in range(5, 10):
                     text += "-- " + HEROES[players[i]['hero_id']] + f" [{players[i]['level']}lvl] [{players[i]['net_worth']}💰] [{players[i]['kills']}/{players[i]['deaths']}/{players[i]['assists']}]\n"
                 parsed = parse_markdown(text)
@@ -149,63 +211,39 @@ class DotaStats(BasePlugin):
             # return HookResult(strategy=HookStrategy.MODIFY, params=params)
             if "error" in r:
                 if r["error"] == "invalid account id":
-                    if lang == "ru":
-                        params.message = "Неверный ID, либо пользователь скрыл свои матчи"
-                    else:
-                        params.message = "Invalid ID or player hide matches history"
-                return HookResult(strategy=HookStrategy.MODIFY, params=params)
+                    # if lang == "ru":
+                    #     params.message = "Неверный ID, либо пользователь скрыл свои матчи"
+                    # else:
+                    #     params.message = "Invalid ID or player hide matches history"
+                    blg = AlertDialogBuilder(get_last_fragment().getParentActivity())
+                    blg.set_title("Invalid accout id")
+                    blg.set_message(localize['invalid_id_profile'][lang])
+                    blg.show()
+                return HookResult(strategy=HookStrategy.CANCEL)
             if r == []:
-                if lang == "ru":
-                    params.message = "Неверный ID, либо пользователь скрыл свои матчи"
-                else:
-                    params.message = "Invalid ID or player hide matches history"
-                return HookResult(strategy=HookStrategy.MODIFY, params=params)
+                # if lang == "ru":
+                #     params.message = "Неверный ID, либо пользователь скрыл свои матчи"
+                # else:
+                #     params.message = "Invalid ID or player hide matches history"
+                blg = AlertDialogBuilder(get_last_fragment().getParentActivity())
+                blg.set_title("Invalid accout id")
+                blg.set_message(localize['invalid_id_profile'][lang])
+                blg.show()
+                return HookResult(strategy=HookStrategy.CANCEL)
             text = ""
-            if lang == "ru":
-                text = "История матчей игрока №" + id + "\n"
-            else:
-                text = "Match history of player №" + id + "\n"
+            # if lang == "ru":
+            #     text = "История матчей игрока №" + id + "\n"
+            # else:
+            #     text = "Match history of player №" + id + "\n"
+            text = localize['match_history'][lang].format(id)
             for match in r:
                 is_radiant = match["player_slot"] < 5
                 win = (is_radiant and match["radiant_win"]) or (not is_radiant and not match["radiant_win"])
-                #text += f"[{'ПОБ' if win else 'ЛУЗ'}] {match['match_id']} - {HEROES[match['hero_id']]} [{match['kills']}/{match['death']}/{match['assists']}]\n"
                 text += f"{'🟩' if win else '🟥'} `{match['match_id']}` - {HEROES[match['hero_id']]} \[{match['kills']}/{match['deaths']}/{match['assists']}\]\n" 
             parsed = parse_markdown(text)
-            # params['message'] = parsed.text
-            # params["entities"] = [en.to_tlrpc_object() for en in parsed.entities]
             send_message({
                 "peer": params.peer,
                 'message': parsed.text,
                 "entities": [en.to_tlrpc_object() for en in parsed.entities]
             })
             return HookResult(strategy=HookStrategy.CANCEL)
-            
-        # try:
-        #     # Split message into two parts. For example:
-        #     # ".wt" -> [".wt"]
-        #     # ".wt Moscow" -> [".wt", "Moscow"]
-        #     # ".wt New York" -> [".wt", "New York"]
-        #     parts = params.message.strip().split(" ", 1)
- 
-        #     # Fallback to "Moscow" if city is not specified
-        #     city = parts[1].strip() if len(parts) > 1 else "Moscow"
-        #     if not city:
-        #         params.message = "Usage: .wt [city]"
-        #         return HookResult(strategy=HookStrategy.MODIFY, params=params)
- 
-        #     # Fetch weather data using previously defined function
-        #     data = fetch_weather_data(city)
-        #     if not data:
-        #         params.message = f"Failed to fetch weather data for '{city}'"
-        #         return HookResult(strategy=HookStrategy.MODIFY, params=params)
- 
-        #     # Format weather using previously defined function
-        #     formatted_weather = format_weather_data(data, city)
- 
-        #     # Modify message content
-        #     params.message = formatted_weather
-        #     return HookResult(strategy=HookStrategy.MODIFY, params=params)
-        # except Exception as e:
-        #     log(f"Weather plugin error: {str(e)}")
-        #     params.message = f"Error: {str(e)}"
-        #     return HookResult(strategy=HookStrategy.MODIFY, params=params)
