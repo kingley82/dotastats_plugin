@@ -1,12 +1,15 @@
 from base_plugin import BasePlugin, HookResult, HookStrategy
 from typing import Any
 from markdown_utils import parse_markdown
-from client_utils import send_message, get_last_fragment
+from client_utils import send_message, get_last_fragment, run_on_queue, EXTERNAL_NETWORK_QUEUE
+from android_utils import log
 import requests
-from ui.settings import Switch, Divider
+from ui.settings import Switch, Divider, Text
 from ui.alert import AlertDialogBuilder
 from PIL import Image
-import io, base64
+import io, base64, os
+from file_utils import get_files_dir, ensure_dir_exists, write_file, list_dir, read_file
+
 
 __id__ = "dotastats"
 __name__ = "DotaStats"
@@ -74,7 +77,7 @@ dire_nicknames_x = 1094
 
 localize = {
     "always_send_images": {
-        "ru": "Всегда отправлять сообщения",
+        "ru": "Всегда отправлять изображения",
         "en": "Always send images"
     },
     "usage": {
@@ -114,24 +117,47 @@ localize = {
         "en": "Match №{}"
     },
     "old_version": {
-        "ru": "Плагин не обновлен под новый патч. Если вышли новые герои или предметы, они не будут отображены",
-        "en": "Plugin is not updated for the latest patch. If new heroes or items was released, they are will not be show"
+        "ru": "Плагин не обновлен под новый патч. Могут быть просадки в производительности или некорректное отображение новых элементов",
+        "en": "Plugin is not updated for the latest patch. May be perfomance troubles and incorrect new elements displaying"
+    },
+    "check_assets": {
+        "ru": "Проверить и скачать ассеты",
+        "en": "Check and download assets"
+    },
+    "redownload_all": {
+        "ru": "Перезагрузить все ассеты",
+        "en": "Redownload all assets"
+    },
+    "redownload_all_warning": {
+        "ru": "Данная функция полностью перезагружает все изображения. На это потребуется 5-10 минут, в зависимости от скорости вашего интернета. Продолжить?",
+        "en": "This function is fully redownloading all images. This takes 5-10 minutes, depending on your Internet-connection speed. Continue?"
+    },
+    "check_assets_warning": {
+        "ru": "Данная функция проверяет скачанные изображения и скачивает недостающие. На это потребуется 1-10 минут, в зависимости от кол-ва скачанных изображений. Продолжить?",
+        "en": "This function is checking downloaded images and downloads missing. This takes 1-10 minutes, depending on downloaded count. Continue?"
     }
 }
 
 class DotaStats(BasePlugin):
     def on_plugin_load(self):
+        self.heroes_dir = os.path.join(get_files_dir(), "dotastats", "heroes")
+        self.items_dir = os.path.join(get_files_dir(), "dotastats", "items")
+        ensure_dir_exists(self.heroes_dir)
+        ensure_dir_exists(self.items_dir)
         self.data = self.load_data()
         self.add_on_send_message_hook()
         self.check_version()
-    
+        # self._load_assets()
       
     def create_settings(self):
         settings = [
             Divider(),
+            Text(text=localize['check_assets']["en" if self.get_setting("lang_en", False) else "ru"], icon="media_download", on_click=self.ask_check_assets),
+            Text(text=localize['redownload_all']["en" if self.get_setting("lang_en", False) else "ru"], icon="media_download", on_click=self.ask_load_assets, red=True),
+            Divider(),
             Switch(key="lang_en", text="Activate for English language", default=False, icon="msg_photo_settings"),
             Divider(),
-            Switch(key="alwaysimage", text=localize['always_send_images']["en" if self.get_setting("lang_en", False) else "ru"], default=False, ),
+            Switch(key="alwaysimage", text=localize['always_send_images']["en" if self.get_setting("lang_en", False) else "ru"], default=False, icon="ic_gallery_background"),
             Divider(text=localize['usage']["en" if self.get_setting("lang_en", False) else "ru"])
         ]
         return settings
@@ -142,8 +168,73 @@ class DotaStats(BasePlugin):
     def check_version(self):
         if self.data["version"] != __version__:
             bld = AlertDialogBuilder(get_last_fragment().getParentActivity())
-            bld.set_title("No updates")
+            bld.set_title("Dotastats")
             bld.set_message(localize['old_version']["en" if self.get_setting("lang_en", False) else "ru"])
+    
+    def ask_check_assets(self, view=None):
+        blg = AlertDialogBuilder(get_last_fragment().getParentActivity())
+        blg.set_title("Dotastats")
+        blg.set_message(localize["check_assets_warning"]["en" if self.get_setting("lang_en", False) else "ru"])
+        blg.set_positive_button("Yes", self._check_assets)
+        blg.set_negative_button("No")
+        blg.show()
+
+    def ask_load_assets(self, view=None):
+        # run_on_queue(self.load_assets, EXTERNAL_NETWORK_QUEUE)
+        blg = AlertDialogBuilder(get_last_fragment().getParentActivity())
+        blg.set_title("Dotastats")
+        blg.set_message(localize["redownload_all_warning"]["en" if self.get_setting("lang_en", False) else "ru"])
+        blg.set_positive_button("Yes", self._load_assets)
+        blg.set_negative_button("No")
+        blg.show()
+    
+    def _check_assets(self, which=None):
+        run_on_queue(self.check_assets, EXTERNAL_NETWORK_QUEUE)
+    
+    def check_assets(self):
+        ensure_dir_exists(self.heroes_dir)
+        ensure_dir_exists(self.items_dir)
+        max = len(self.data["HEROES_IMAGES"]) + len(self.data["ITEMS_IMAGES"]) + 1
+        progress = 0
+        loading_bld = AlertDialogBuilder(get_last_fragment().getParentActivity(), AlertDialogBuilder.ALERT_TYPE_LOADING)
+        loading_bld.set_title("Dotastats")
+        loading_bld.set_message(f"0/{max}")
+        loading_bld.show()
+        loading_bld.set_cancelable(False)
+        having = list_dir(path=self.heroes_dir, extensions=[".png"])
+        for i in self.data["HEROES_IMAGES"]:
+            if not f"{i}.png" in having:
+                r = requests.get(self.data["HEROES_IMAGES"][i]).content
+                write_file(os.path.join(self.heroes_dir, f"{i}.png"), r)
+            progress += 1
+            loading_bld.set_message(f"{progress}/{max}")
+            loading_bld.set_progress(int((progress/max)*100))
+        having = list_dir(path=self.items_dir, extensions=[".png"])
+        for i in self.data["ITEMS_IMAGES"]:
+            if not f"{i}.png" in having:
+                r = requests.get(self.data["ITEMS_IMAGES"][i]).content
+                write_file(os.path.join(self.items_dir, f"{i}.png"), r)
+            progress += 1
+            loading_bld.set_message(f"{progress}/{max}")
+            loading_bld.set_progress(int((progress/max)*100))
+        r = requests.get("https://raw.githubusercontent.com/kingley82/dotastats_plugin/refs/heads/master/files/radiance-semibold.otf").content
+        write_file(os.path.join(get_files_dir(), "dotastats", "font.otf"), r)
+        loading_bld.dismiss()
+
+    def _load_assets(self, which=None):
+        run_on_queue(self.load_assets, EXTERNAL_NETWORK_QUEUE)
+
+    def load_assets(self):
+        ensure_dir_exists(self.heroes_dir)
+        ensure_dir_exists(self.items_dir)
+        for i in self.data["HEROES_IMAGES"]:
+            r = requests.get(self.data["HEROES_IMAGES"][i]).content
+            write_file(os.path.join(self.heroes_dir, f"{i}.png"), r)
+        for i in self.data["ITEMS_IMAGES"]:
+            r = requests.get(self.data["ITEMS_IMAGES"][i]).content
+            write_file(os.path.join(self.items_dir, f"{i}.png"), r)
+        r = requests.get("https://raw.githubusercontent.com/kingley82/dotastats_plugin/refs/heads/master/files/radiance-semibold.otf").content
+        write_file(os.path.join(get_files_dir(), "dotastats", "font.otf"), r)
  
     def on_send_message_hook(self, account: int, params: Any) -> HookResult:
         if not isinstance(params.message, str):
@@ -164,7 +255,7 @@ class DotaStats(BasePlugin):
                     # else:
                     #     params.message = f"Match №{id} not found"
                     bld = AlertDialogBuilder(get_last_fragment().getParentActivity())
-                    bld.set_title("Not Found")
+                    bld.set_title("Dotastats")
                     bld.set_message(localize['match_not_found'][lang].format(id))
                     bld.show()
                 return HookResult(strategy=HookStrategy.CANCEL)
@@ -216,7 +307,7 @@ class DotaStats(BasePlugin):
                     # else:
                     #     params.message = "Invalid ID or player hide matches history"
                     blg = AlertDialogBuilder(get_last_fragment().getParentActivity())
-                    blg.set_title("Invalid accout id")
+                    blg.set_title("Dotastats")
                     blg.set_message(localize['invalid_id_profile'][lang])
                     blg.show()
                 return HookResult(strategy=HookStrategy.CANCEL)
@@ -226,7 +317,7 @@ class DotaStats(BasePlugin):
                 # else:
                 #     params.message = "Invalid ID or player hide matches history"
                 blg = AlertDialogBuilder(get_last_fragment().getParentActivity())
-                blg.set_title("Invalid accout id")
+                blg.set_title("Dotastats")
                 blg.set_message(localize['invalid_id_profile'][lang])
                 blg.show()
                 return HookResult(strategy=HookStrategy.CANCEL)
