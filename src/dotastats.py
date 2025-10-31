@@ -1,3 +1,5 @@
+#добро пожаловать на кровавую арену смерти
+
 from base_plugin import BasePlugin, HookResult, HookStrategy
 from typing import Any
 from markdown_utils import parse_markdown
@@ -338,3 +340,5 @@ class DotaStats(BasePlugin):
                 "entities": [en.to_tlrpc_object() for en in parsed.entities]
             })
             return HookResult(strategy=HookStrategy.CANCEL)
+        
+
